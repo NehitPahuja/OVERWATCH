@@ -14,7 +14,7 @@ body {
   background: #000;
 }
 
-/* CRT SCANLINE EFFECT — applied to a separate overlay div, NOT the main container */
+/* CRT SCANLINE EFFECT */
 .crt-overlay::before {
   content: "";
   display: block;
