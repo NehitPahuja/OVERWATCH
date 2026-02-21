@@ -10,7 +10,16 @@ export default {
         },
       },
       boxShadow: {
-        panel: '0 0 0 1px rgba(34,211,238,0.25), 0 8px 28px rgba(2,6,23,0.55)',
+        panel: '0 0 0 1px rgba(34,211,238,0.25), 0 8px 18px rgba(2,6,23,0.55)',
+      },
+      keyframes: {
+        scan: {
+          '0%': { top: '0%' },
+          '100%': { top: '100%' },
+        },
+      },
+      animation: {
+        scan: 'scan 2s linear infinite',
       },
     },
   },
