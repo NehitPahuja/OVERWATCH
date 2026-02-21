@@ -12,8 +12,6 @@ const fallbackData = {
   earthquakes: { lastDayCount: 128, maxMagnitude: 5.1 },
 };
 
-const sourceOptions = ['traffic', 'flights', 'earthquakes'];
-
 async function fetchJSON(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 9000);
@@ -27,66 +25,11 @@ async function fetchJSON(url) {
   }
 }
 
-function buildRecords(data) {
-  return {
-    traffic: data.traffic,
-    flights: [
-      {
-        totalFlights: data.flights.totalFlights,
-        sampleCallsigns: data.flights.sampleCallsigns.join(','),
-      },
-    ],
-    earthquakes: [
-      {
-        lastDayCount: data.earthquakes.lastDayCount,
-        maxMagnitude: Number(data.earthquakes.maxMagnitude),
-      },
-    ],
-  };
-}
-
-function applyFilter(rows, filterText) {
-  const clean = filterText.trim();
-  if (!clean) return rows;
-
-  const match = clean.match(/^([a-zA-Z0-9_]+)\s*(=|:|>=|<=|>|<|~)\s*(.+)$/);
-  if (!match) {
-    const q = clean.toLowerCase();
-    return rows.filter((row) => JSON.stringify(row).toLowerCase().includes(q));
-  }
-
-  const [, field, operator, rawValue] = match;
-  const value = rawValue.trim().replace(/^"|"$/g, '');
-
-  return rows.filter((row) => {
-    const rowValue = row[field];
-    if (rowValue === undefined || rowValue === null) return false;
-
-    if (operator === '=' || operator === ':') return String(rowValue).toLowerCase() === value.toLowerCase();
-    if (operator === '~') return String(rowValue).toLowerCase().includes(value.toLowerCase());
-
-    const left = Number(rowValue);
-    const right = Number(value);
-    if (Number.isNaN(left) || Number.isNaN(right)) return false;
-
-    if (operator === '>') return left > right;
-    if (operator === '<') return left < right;
-    if (operator === '>=') return left >= right;
-    if (operator === '<=') return left <= right;
-    return false;
-  });
-}
-
 export default function App() {
   const [activeNav, setActiveNav] = useState('Dashboard');
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState([]);
   const [data, setData] = useState(fallbackData);
-
-  const [querySource, setQuerySource] = useState('traffic');
-  const [queryFilter, setQueryFilter] = useState('congestion~mod');
-  const [queryRows, setQueryRows] = useState([]);
-  const [queryMeta, setQueryMeta] = useState('Run a query to inspect the active dataset.');
 
   useEffect(() => {
     let mounted = true;
@@ -104,14 +47,11 @@ export default function App() {
       const nextData = { ...fallbackData };
 
       if (trafficResp.status === 'fulfilled' && Array.isArray(trafficResp.value)) {
-        nextData.traffic = trafficResp.value.slice(0, 6).map((item, idx) => {
-          const speed = Number(item.speed) || Math.floor(35 + Math.random() * 45);
-          return {
-            corridor: item.boro || item.roadway_name || `Corridor-${idx + 1}`,
-            avgSpeedKph: speed,
-            congestion: speed < 35 ? 'Heavy' : speed < 60 ? 'Moderate' : 'Light',
-          };
-        });
+        nextData.traffic = trafficResp.value.slice(0, 4).map((item, idx) => ({
+          corridor: item.boro || item.roadway_name || `Corridor-${idx + 1}`,
+          avgSpeedKph: Number(item.speed) || Math.floor(35 + Math.random() * 45),
+          congestion: Number(item.speed) < 35 ? 'Heavy' : Number(item.speed) < 60 ? 'Moderate' : 'Light',
+        }));
       } else {
         nextErrors.push('Traffic feed unavailable; using fallback telemetry.');
       }
@@ -133,7 +73,7 @@ export default function App() {
         const mags = eqResp.value.features.map((f) => f.properties?.mag || 0);
         nextData.earthquakes = {
           lastDayCount: eqResp.value.features.length,
-          maxMagnitude: Number(Math.max(...mags).toFixed(1)),
+          maxMagnitude: Math.max(...mags).toFixed(1),
         };
       } else {
         nextErrors.push('Earthquake feed unavailable; using fallback telemetry.');
@@ -156,12 +96,8 @@ export default function App() {
   }, []);
 
   const graphSeries = useMemo(() => {
-    const avgTraffic = data.traffic.length
-      ? data.traffic.reduce((acc, r) => acc + Number(r.avgSpeedKph || 0), 0) / data.traffic.length
-      : 0;
-
     const base = [
-      { label: 'Traffic', value: avgTraffic },
+      { label: 'Traffic', value: data.traffic.reduce((acc, r) => acc + r.avgSpeedKph, 0) / data.traffic.length },
       { label: 'Flights', value: data.flights.totalFlights / 140 },
       { label: 'Seismic', value: data.earthquakes.lastDayCount },
     ];
@@ -169,13 +105,6 @@ export default function App() {
     const max = Math.max(...base.map((b) => b.value), 1);
     return base.map((item) => ({ ...item, pct: Math.round((item.value / max) * 100) }));
   }, [data]);
-
-  function runQuery() {
-    const records = buildRecords(data)[querySource] ?? [];
-    const filtered = applyFilter(records, queryFilter);
-    setQueryRows(filtered.slice(0, 8));
-    setQueryMeta(`Source: ${querySource} • matched ${filtered.length} of ${records.length} record(s)`);
-  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -224,21 +153,15 @@ export default function App() {
 
           <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
             <article className="rounded-xl border border-slate-700 bg-slate-900/80 p-4 shadow-panel xl:col-span-2">
-              <h3 className="mb-3 text-sm uppercase tracking-wide text-cyan-300">Infrastructure Map (Embeddable)</h3>
+              <h3 className="mb-3 text-sm uppercase tracking-wide text-cyan-300">OpenInfraMap (Live Layer)</h3>
               <div className="h-[420px] overflow-hidden rounded-lg border border-cyan-900/60">
                 <iframe
-                  title="OpenStreetMap"
-                  src="https://www.openstreetmap.org/export/embed.html?bbox=-22.5%2C24.6%2C62.5%2C58.7&layer=mapnik"
+                  title="OpenInfraMap"
+                  src="https://openinframap.org/#3.19/20.24/7.97/L,P,T"
                   className="h-full w-full"
                   loading="lazy"
                 />
               </div>
-              <p className="mt-2 text-xs text-slate-400">
-                OpenInfraMap blocks iframe embedding. Use live overlay directly:{' '}
-                <a className="text-cyan-300 underline" href="https://openinframap.org" target="_blank" rel="noreferrer">
-                  openinframap.org
-                </a>
-              </p>
             </article>
 
             <article className="space-y-4 rounded-xl border border-slate-700 bg-slate-900/80 p-4 shadow-panel">
@@ -258,9 +181,7 @@ export default function App() {
                   {data.traffic.map((row) => (
                     <div key={row.corridor} className="flex justify-between rounded bg-slate-900 p-2">
                       <span className="text-slate-300">{row.corridor}</span>
-                      <span className="text-cyan-300">
-                        {row.avgSpeedKph} kph • {row.congestion}
-                      </span>
+                      <span className="text-cyan-300">{row.avgSpeedKph} kph • {row.congestion}</span>
                     </div>
                   ))}
                 </div>
@@ -271,43 +192,10 @@ export default function App() {
           <section className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
             <article className="rounded-xl border border-slate-700 bg-slate-900/80 p-4 shadow-panel">
               <h3 className="mb-3 text-sm uppercase tracking-wide text-cyan-300">Query Builder</h3>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                <select
-                  value={querySource}
-                  onChange={(e) => setQuerySource(e.target.value)}
-                  className="rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm"
-                >
-                  {sourceOptions.map((source) => (
-                    <option key={source} value={source}>
-                      {source}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  value={queryFilter}
-                  onChange={(e) => setQueryFilter(e.target.value)}
-                  className="rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm md:col-span-2"
-                  placeholder="Examples: congestion~heavy, avgSpeedKph>50"
-                />
-                <button
-                  type="button"
-                  onClick={runQuery}
-                  className="rounded border border-cyan-700 bg-cyan-800/40 px-3 py-2 text-sm text-cyan-100"
-                >
-                  Run Query
-                </button>
-              </div>
-              <p className="mt-3 text-xs text-slate-400">{queryMeta}</p>
-              <div className="mt-3 max-h-40 overflow-auto rounded border border-slate-700 bg-slate-950 p-2 text-xs">
-                {queryRows.length === 0 ? (
-                  <p className="text-slate-500">No results yet.</p>
-                ) : (
-                  queryRows.map((row, idx) => (
-                    <pre key={`${querySource}-${idx}`} className="whitespace-pre-wrap text-slate-300">
-                      {JSON.stringify(row, null, 2)}
-                    </pre>
-                  ))
-                )}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <input className="rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm" placeholder="Source: flights" />
+                <input className="rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm" placeholder="Filter: region=EU" />
+                <button className="rounded border border-cyan-700 bg-cyan-800/40 px-3 py-2 text-sm text-cyan-100">Run Query</button>
               </div>
             </article>
 
